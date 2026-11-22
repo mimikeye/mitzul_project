@@ -312,6 +312,7 @@ class _LoginScreenState extends State<LoginScreen> {
             style: const TextStyle(
               color: AppColors.text,
               fontSize: 17,
+              fontWeight: FontWeight.w500,
             ),
             decoration: InputDecoration(
               isCollapsed: true,
