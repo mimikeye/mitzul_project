@@ -1,8 +1,12 @@
-
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../constants/app_colors.dart';
+import '../services/auth_service.dart';
 import 'signup_screen.dart';
+import 'home_screen.dart';
+import '../services/google_auth_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -25,16 +29,67 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _autoLogin = false;
   final bool _obscurePassword = true;
 
+  bool _isLoading = false;
+
+  final AuthService _authService = AuthService();
+
+  final GoogleAuthService _googleAuthService =
+    GoogleAuthService();
+
   @override
   void initState() {
     super.initState();
 
     _idController.addListener(_updateState);
     _passwordController.addListener(_updateState);
+
+    _loadSavedEmail();
+  }
+
+  // 저장된 이메일 불러오기
+  Future<void> _loadSavedEmail() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    final savedEmail = prefs.getString('savedEmail');
+    final rememberId = prefs.getBool('rememberId') ?? false;
+
+    if (!mounted) return;
+
+    setState(() {
+      _rememberId = rememberId;
+
+      if (_rememberId && savedEmail != null) {
+        _idController.text = savedEmail;
+      }
+    });
+  }
+
+  // 이메일 저장 설정
+  Future<void> _saveEmailPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.setBool('rememberId', _rememberId);
+
+    if (_rememberId) {
+      await prefs.setString(
+        'savedEmail',
+        _idController.text.trim(),
+      );
+    } else {
+      await prefs.remove('savedEmail');
+    }
+  }
+
+  Future<void> _saveAutoLoginPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+
+    await prefs.setBool('autoLogin', _autoLogin);
   }
 
   void _updateState() {
-    setState(() {});
+    if (mounted) {
+      setState(() {});
+    }
   }
 
   bool get _isLoginEnabled {
@@ -42,12 +97,169 @@ class _LoginScreenState extends State<LoginScreen> {
         _passwordController.text.isNotEmpty;
   }
 
+  // Firebase 로그인
+  Future<void> _login() async {
+    if (_isLoading) return;
+
+    FocusScope.of(context).unfocus();
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // 이메일 저장
+      await _saveEmailPreference();
+      await _saveAutoLoginPreference();
+
+      // Firebase 로그인
+      await _authService.signIn(
+        email: _idController.text.trim(),
+        password: _passwordController.text,
+      );
+
+      if (!mounted) return;
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const HomeScreen(),
+        ),
+      );
+
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+
+      String message;
+
+      switch (e.code) {
+        case 'user-not-found':
+        case 'invalid-credential':
+          message = '이메일 또는 비밀번호를 확인해주세요.';
+          break;
+
+        case 'wrong-password':
+          message = '비밀번호가 올바르지 않습니다.';
+          break;
+
+        case 'invalid-email':
+          message = '올바른 이메일 형식이 아닙니다.';
+          break;
+
+        case 'too-many-requests':
+          message = '잠시 후 다시 시도해주세요.';
+          break;
+
+        case 'network-request-failed':
+          message = '네트워크 연결을 확인해주세요.';
+          break;
+
+        default:
+          message = '로그인에 실패했습니다. 다시 시도해주세요.';
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+
+    } catch (e) {
+      debugPrint('로그인 오류: $e');
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('로그인 중 오류가 발생했습니다.'),
+        ),
+      );
+
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
+  // Google 로그인
+  Future<void> _googleLogin() async {
+    if (_isLoading) return;
+
+    FocusScope.of(context).unfocus();
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      final userCredential =
+          await _googleAuthService.signInWithGoogle();
+
+      final user = userCredential.user;
+
+      if (user == null) {
+        throw Exception('Google 사용자 정보를 가져오지 못했습니다.');
+      }
+
+      // 자동 로그인 설정 저장
+      await _saveAutoLoginPreference();
+
+      // 이메일 저장 설정
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('rememberId', _rememberId);
+
+      if (_rememberId && user.email != null) {
+        await prefs.setString('savedEmail', user.email!);
+      } else {
+        await prefs.remove('savedEmail');
+      }
+
+      if (!mounted) return;
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const HomeScreen(),
+        ),
+      );
+    } on FirebaseAuthException catch (e) {
+      debugPrint('Google 로그인 Firebase 오류: ${e.code}');
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Google 로그인에 실패했습니다. 다시 시도해주세요.'),
+        ),
+      );
+    } catch (e) {
+      debugPrint('Google 로그인 오류: $e');
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Google 로그인 중 오류가 발생했습니다.'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
   @override
   void dispose() {
     _idController.dispose();
     _passwordController.dispose();
+
     _idFocusNode.dispose();
     _passwordFocusNode.dispose();
+
     super.dispose();
   }
 
@@ -109,6 +321,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   focusNode: _idFocusNode,
                   hintText: '이메일',
                   isPassword: false,
+                  scale: scale,
                 ),
               ),
 
@@ -123,6 +336,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   focusNode: _passwordFocusNode,
                   hintText: '비밀번호',
                   isPassword: true,
+                  scale: scale,
                 ),
               ),
 
@@ -165,10 +379,8 @@ class _LoginScreenState extends State<LoginScreen> {
                 width: 298 * scale,
                 height: 59 * scale,
                 child: ElevatedButton(
-                  onPressed: _isLoginEnabled
-                      ? () {
-                          // 추후 Firebase 로그인 연결
-                        }
+                  onPressed: _isLoginEnabled && !_isLoading
+                      ? _login
                       : null,
                   style: ElevatedButton.styleFrom(
                     elevation: 0,
@@ -181,13 +393,22 @@ class _LoginScreenState extends State<LoginScreen> {
                     shape: const StadiumBorder(),
                     padding: EdgeInsets.zero,
                   ),
-                  child: Text(
-                    '로그인',
-                    style: TextStyle(
-                      fontSize: 18 * scale,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
+                  child: _isLoading
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: AppColors.text,
+                          ),
+                        )
+                      : Text(
+                          '로그인',
+                          style: TextStyle(
+                            fontSize: 18 * scale,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
                 ),
               ),
 
@@ -206,13 +427,16 @@ class _LoginScreenState extends State<LoginScreen> {
                         fontSize: 13 * scale,
                       ),
                     ),
+
                     SizedBox(width: 10 * scale),
+
                     GestureDetector(
                       onTap: () {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => const SignupScreen(),
+                            builder: (context) =>
+                                const SignupScreen(),
                           ),
                         );
                       },
@@ -242,6 +466,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         color: AppColors.subText,
                       ),
                     ),
+
                     Padding(
                       padding: EdgeInsets.symmetric(
                         horizontal: 9 * scale,
@@ -254,6 +479,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                       ),
                     ),
+
                     Expanded(
                       child: Container(
                         height: 1,
@@ -269,9 +495,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 left: 170 * scale,
                 top: 670 * scale,
                 child: GestureDetector(
-                  onTap: () {
-                    // 추후 Google 로그인 연결
-                  },
+                  onTap: _isLoading ? null : _googleLogin,
                   child: Image.asset(
                     'assets/images/googlelogin.png',
                     width: 50 * scale,
@@ -293,6 +517,7 @@ class _LoginScreenState extends State<LoginScreen> {
     required FocusNode focusNode,
     required String hintText,
     required bool isPassword,
+    required double scale,
   }) {
     return AnimatedBuilder(
       animation: focusNode,
@@ -320,14 +545,15 @@ class _LoginScreenState extends State<LoginScreen> {
               fontSize: 17,
               fontWeight: FontWeight.w500,
             ),
-            decoration: InputDecoration(
+            decoration: const InputDecoration(
               isCollapsed: true,
+              border: InputBorder.none,
+            ).copyWith(
               hintText: hasLabel ? null : hintText,
               hintStyle: const TextStyle(
                 color: AppColors.disabled,
                 fontSize: 17,
               ),
-              border: InputBorder.none,
             ),
           );
         }
@@ -359,6 +585,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         fontSize: 12,
                       ),
                     ),
+
                     Expanded(
                       child: Row(
                         children: [

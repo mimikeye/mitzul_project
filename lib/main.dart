@@ -1,8 +1,19 @@
 import 'package:flutter/material.dart';
 import 'constants/app_colors.dart';
 import 'screens/splash_screen.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'firebase_options.dart';
+import 'services/google_auth_service.dart';
 
-void main() {
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
+  await GoogleAuthService().initialize();
+
   runApp(const MitzulApp());
 }
 

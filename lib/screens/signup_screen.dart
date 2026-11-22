@@ -2,6 +2,11 @@ import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
 
+import 'package:firebase_auth/firebase_auth.dart';
+
+import '../services/auth_service.dart';
+import '../services/user_service.dart';
+
 class SignupScreen extends StatefulWidget {
   const SignupScreen({super.key});
 
@@ -28,6 +33,11 @@ class _SignupScreenState extends State<SignupScreen> {
 
   bool _showPassword = false;
   bool _showConfirmPassword = false;
+
+  bool _isLoading = false;
+
+  final AuthService _authService = AuthService();
+  final UserService _userService = UserService();
 
   @override
   void initState() {
@@ -72,17 +82,97 @@ class _SignupScreenState extends State<SignupScreen> {
     super.dispose();
   }
 
-  void _goToNextStep() {
+  
+  Future<void> _goToNextStep() async {
     if (_currentStep == 0) {
       FocusScope.of(context).unfocus();
 
       setState(() {
         _currentStep = 1;
       });
-    } else {
-      // 추후 Firebase 회원가입 연결
+      return;
+    }
+
+    if (_isLoading) return;
+
+    FocusScope.of(context).unfocus();
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    try {
+      // 1. Firebase Authentication 계정 생성
+      final credential = await _authService.signUp(
+        email: _emailController.text.trim(),
+        password: _passwordController.text,
+      );
+
+      // 2. 생성된 사용자 UID 확인
+      final user = credential.user;
+
+      if (user == null) {
+        throw Exception('사용자 정보를 가져오지 못했습니다.');
+      }
+
+      // 3. Firestore에 사용자 정보 저장
+      await _userService.createUser(
+        uid: user.uid,
+        name: _nameController.text.trim(),
+        email: _emailController.text.trim(),
+      );
+
+      // 4. 로그인 화면으로 이동
+      if (!mounted) return;
+
+      Navigator.pop(context);
+
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) return;
+
+      String message;
+
+      switch (e.code) {
+        case 'email-already-in-use':
+          message = '이미 사용 중인 이메일입니다.';
+          break;
+        case 'invalid-email':
+          message = '올바른 이메일 형식이 아닙니다.';
+          break;
+        case 'weak-password':
+          message = '비밀번호가 너무 간단합니다.';
+          break;
+        case 'network-request-failed':
+          message = '네트워크 연결을 확인해주세요.';
+          break;
+        default:
+          message = '회원가입에 실패했습니다. 다시 시도해주세요.';
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+
+    } catch (e, stackTrace) {
+      debugPrint('회원가입 오류: $e');
+      debugPrint('오류 상세: $stackTrace');
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('회원가입 처리 중 오류가 발생했습니다.'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
+
 
   void _goToPreviousStep() {
     FocusScope.of(context).unfocus();
@@ -240,7 +330,7 @@ class _SignupScreenState extends State<SignupScreen> {
                       width: double.infinity,
                       height: 59 * scale,
                       child: ElevatedButton(
-                        onPressed: isButtonEnabled
+                        onPressed: isButtonEnabled && !_isLoading
                             ? _goToNextStep
                             : null,
                         style: ElevatedButton.styleFrom(
@@ -254,13 +344,22 @@ class _SignupScreenState extends State<SignupScreen> {
                           shape: const StadiumBorder(),
                           padding: EdgeInsets.zero,
                         ),
-                        child: Text(
-                          _currentStep == 0 ? '다음' : '확인',
-                          style: TextStyle(
-                            fontSize: 16 * scale,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
+                        child: _isLoading
+                            ? SizedBox(
+                                width: 22 * scale,
+                                height: 22 * scale,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  color: AppColors.text,
+                                ),
+                              )
+                            : Text(
+                                _currentStep == 0 ? '다음' : '확인',
+                                style: TextStyle(
+                                  fontSize: 16 * scale,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
                       ),
                     ),
 
