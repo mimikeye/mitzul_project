@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import '../constants/app_colors.dart';
+import 'login_screen.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -22,12 +23,7 @@ class _SplashScreenState extends State<SplashScreen> {
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (context) => const Scaffold(
-              backgroundColor: AppColors.ivory,
-              body: Center(
-                child: Text('로그인 화면 준비 중'),
-              ),
-            ),
+            builder: (context) => const LoginScreen(),
           ),
         );
       });
