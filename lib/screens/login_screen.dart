@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 
 import '../constants/app_colors.dart';
+import 'signup_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -208,7 +209,12 @@ class _LoginScreenState extends State<LoginScreen> {
                     SizedBox(width: 10 * scale),
                     GestureDetector(
                       onTap: () {
-                        // 추후 회원가입 화면 연결
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const SignupScreen(),
+                          ),
+                        );
                       },
                       child: Text(
                         '회원가입',
